@@ -5,6 +5,7 @@ require 'listen'
 require 'fileutils'
 require 'pry'
 require 'json'
+require 'webrick'
 
 $options = {
   outdir: nil,
@@ -17,6 +18,13 @@ OptionParser.new do |opts|
   end
   opts.on '-i', '--indir INDIR', 'The directory to scan for new files' do |dir|
     $options[:indir] = dir
+  end
+  opts.on '--server PORT', 'Runs the backend upload server' do |port|
+    $server = WEBrick::HTTPServer.new Port: port, BindAddress: '127.0.0.1'
+    $server.mount_proc '/upload' do |req, res|
+      binding.pry
+      res.body = '<html><head><title>Success</title></head><body><h1>Successfully uploaded!</h1></body></html>'
+    end
   end
 end.parse!
 
@@ -107,5 +115,10 @@ end.start
 
 puts 'Listener successfully setup, operating normally'
 puts 'Press Ctrl+C to quit...'
-sleep
+if $server.nil?
+  sleep
+else
+  trap 'INT' { $server.shutdown }
+  $server.start
+end
 listener.stop
