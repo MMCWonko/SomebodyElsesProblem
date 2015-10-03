@@ -3,9 +3,11 @@
 require 'optparse'
 require 'listen'
 require 'fileutils'
-require 'pry'
+begin; require 'pry'; rescue LoadError; end
 require 'json'
 require 'webrick'
+
+Random.srand
 
 $options = {
   outdir: nil,
@@ -22,7 +24,8 @@ OptionParser.new do |opts|
   opts.on '--server PORT', 'Runs the backend upload server' do |port|
     $server = WEBrick::HTTPServer.new Port: port, BindAddress: '127.0.0.1'
     $server.mount_proc '/upload' do |req, res|
-      binding.pry
+      data = req.query.key?('file') ? req.query['file'] : req.body
+      File.write "#{$options[:indir]}/uploaded-#{Time.now.to_i}-#{Random.rand 1000}.json", data
       res.body = '<html><head><title>Success</title></head><body><h1>Successfully uploaded!</h1></body></html>'
     end
   end
@@ -65,7 +68,8 @@ def wonkofile_stub_from_wonkoversion(version)
                 type: version['type'],
                 time: version['time'],
                 requires: version['requires']
-              }]
+              }],
+    'formatVersion': 10
   }
 end
 
@@ -93,12 +97,16 @@ def handle_file(filename)
     end
   else
     puts '  No \'name\' key found in ' + filename + ', assuming WonkoVersion'
-    FileUtils.mkdir_p File.dirname wonkoversion_filename(data['uid'], data['version'])
-    write_json_file wonkoversion_filename(data['uid'], data['version']), data
-    if File.exists? wonkofile_filename(data['uid'])
-      write_json_file wonkofile_filename(data['uid']), wonkofile_merge(read_json_file(wonkofile_filename data['uid']), wonkofile_stub_from_wonkoversion(data))
-    else
-      write_json_file wonkofile_filename(data['uid']), wonkofile_stub_from_wonkoversion(data)
+    new_format = data['formatVersion'] >= 10
+    version_filename = wonkoversion_filename(data['uid'], data['version']) + (new_format ? '.new' : '')
+    FileUtils.mkdir_p File.dirname version_filename
+    write_json_file version_filename, data
+    if new_format
+      if File.exists? wonkofile_filename(data['uid'])
+        write_json_file wonkofile_filename(data['uid']), wonkofile_merge(read_json_file(wonkofile_filename data['uid']), wonkofile_stub_from_wonkoversion(data))
+      else
+        write_json_file wonkofile_filename(data['uid']), wonkofile_stub_from_wonkoversion(data)
+      end
     end
   end
   File.delete filename
@@ -118,7 +126,7 @@ puts 'Press Ctrl+C to quit...'
 if $server.nil?
   sleep
 else
-  trap 'INT' { $server.shutdown }
+  trap('INT') { $server.shutdown }
   $server.start
 end
 listener.stop
